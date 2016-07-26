@@ -130,19 +130,19 @@
 
 (extend-protocol proto/IExecute
   java.lang.String
-  (execute [^String sql ^Connection conn opts]
-    (with-open [^PreparedStatement stmt (.createStatement conn)]
-      (.addBatch stmt sql)
+  (execute [sql conn opts]
+    (with-open [^PreparedStatement stmt (.createStatement ^Connection conn)]
+      (.addBatch stmt ^String sql)
       (seq (.executeBatch stmt))))
 
   clojure.lang.IPersistentVector
-  (execute [^clojure.lang.IPersistentVector sqlvec ^Connection conn opts]
+  (execute [sqlvec conn opts]
     (with-open [^PreparedStatement stmt (proto/prepared-statement sqlvec conn opts)]
-      ;; TODO: returning
-      ;; (if (:returning opts)
-      ;;   (let [rs (.getGeneratedKeys stmt)]
-      ;;     (result-set->vector conn rs {}))
-      (.executeUpdate stmt)))
+      (let [counts (.executeUpdate stmt)]
+        (if (:returning opts)
+          (with-open [rs (.getGeneratedKeys stmt)]
+            (result-set->vector conn rs opts))
+          counts))))
 
   PreparedStatement
   (execute [^PreparedStatement stmt ^Connection conn opts]
@@ -155,13 +155,13 @@
 (extend-protocol proto/IFetch
   java.lang.String
   (fetch [^String sql ^Connection conn opts]
-    (let [^PreparedStatement stmt (proto/prepared-statement sql conn opts)]
+    (with-open [^PreparedStatement stmt (proto/prepared-statement sql conn opts)]
       (let [^ResultSet rs (.executeQuery stmt)]
         (result-set->vector conn rs opts))))
 
   clojure.lang.IPersistentVector
   (fetch [^clojure.lang.IPersistentVector sqlvec ^Connection conn opts]
-    (let [^PreparedStatement stmt (proto/prepared-statement sqlvec conn opts)]
+    (with-open [^PreparedStatement stmt (proto/prepared-statement sqlvec conn opts)]
       (let [^ResultSet rs (.executeQuery stmt)]
         (result-set->vector conn rs opts))))
 
@@ -194,8 +194,7 @@
   ([^Connection conn sqlvec {:keys [result-type result-concurency fetch-size
                                     max-rows holdability returning]
                              :or {result-type :forward-only
-                                  result-concurency :read-only
-                                  fetch-size 100}
+                                  result-concurency :read-only}
                              :as options}]
    (let [sqlvec (if (string? sqlvec) [sqlvec] sqlvec)
          ^String sql (first sqlvec)
@@ -204,7 +203,7 @@
          ^PreparedStatement
          stmt (cond
                returning
-               (if (= :all returning)
+               (if (or (= :all returning) (true? returning))
                  (.prepareStatement conn sql java.sql.Statement/RETURN_GENERATED_KEYS)
                  (.prepareStatement conn sql
                                     #^"[Ljava.lang.String;" (into-array String (mapv name returning))))

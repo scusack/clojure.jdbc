@@ -89,9 +89,18 @@
   (with-open [conn (jdbc/connection pg-dbspec)]
     (jdbc/atomic conn
       (jdbc/set-rollback! conn)
-      (jdbc/execute conn "create table foo (id serial, age integer);")
-      (let [result (jdbc/fetch conn ["insert into foo (age) values (?) returning id" 1])]
-        (is (= result [{:id 1}]))))))
+      (jdbc/execute conn "create table foo2 (id serial, age integer);")
+      (let [result (jdbc/fetch conn ["insert into foo2 (age) values (?) returning id" 1])]
+        (is (= result [{:id 1}])))))
+
+  (with-open [conn (jdbc/connection pg-dbspec)]
+    (jdbc/atomic conn
+      (jdbc/set-rollback! conn)
+      (let [sql1 "CREATE TABLE foo (id integer primary key, age integer);"
+            sql2 ["INSERT INTO foo (id, age) VALUES (?,?), (?,?);" 1 1 2 2]]
+        (jdbc/execute conn sql1)
+        (let [result (jdbc/execute conn sql2 {:returning true})]
+          (is (= result [{:id 1, :age 1} {:id 2, :age 2}])))))))
 
 (deftest db-commands
   ;; Simple statement
@@ -138,6 +147,11 @@
   (with-open [conn (jdbc/connection h2-dbspec3)]
     (let [result (jdbc/fetch conn ["SELECT 1 + 1 as foo;"] {:as-rows? true})]
       (is (= [2] (first result)))))
+
+  ;; Fetch returning rows with header
+  (with-open [conn (jdbc/connection h2-dbspec3)]
+    (let [result (jdbc/fetch conn ["SELECT 1 + 1 as foo, 2 + 2 as bar;"] {:as-rows? true :header? true})]
+      (is (= [["foo", "bar"] [2, 4]] result))))
 
   ;; Fetch from prepared statement
   (with-open [conn (jdbc/connection h2-dbspec3)]
