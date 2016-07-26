@@ -18,7 +18,6 @@
             [jdbc.types :as types]
             [jdbc.impl :as impl]
             [jdbc.proto :as proto]
-            [jdbc.resultset :refer [result-set->lazyseq result-set->vector]]
             [jdbc.transaction :as tx]
             [jdbc.constants :as constants])
   (:import java.sql.PreparedStatement

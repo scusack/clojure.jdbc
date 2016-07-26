@@ -13,8 +13,7 @@
 ;; limitations under the License.
 
 (ns jdbc.types
-  (:require [jdbc.proto :as proto]
-            [jdbc.resultset :refer [result-set->lazyseq]])
+  (:require [jdbc.proto :as proto])
   (:import java.sql.Connection
            java.sql.ResultSet
            java.sql.PreparedStatement))
