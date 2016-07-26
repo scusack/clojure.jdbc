@@ -20,6 +20,14 @@
            java.sql.ResultSetMetaData
            java.sql.ResultSet))
 
+(defn default-identifiers
+  [metadata]
+  (mapv (fn [^long i]
+          (-> (.getColumnLabel metadata i)
+              str/lower-case
+              keyword))
+        (range 1 (inc (.getColumnCount metadata)))))
+
 (defn result-set->lazyseq
   "Function that wraps result in a lazy seq. This function
   is part of public api but can not be used directly (you should pass
@@ -29,13 +37,8 @@
     rs: ResultSet instance.
 
   Optional named parameters:
-    :metadata->identifiers -> function that is passed the metadata and should
-                              return a seq of column identifiers
-                              when as-rows? is false
-
-    :identifiers -> function that is applied to column labels
-                    when metadata->identifiers is nil
-                    and as-rows? is false
+    :identifiers -> function that takes the resultset metadata and
+                    returns column names.
 
     :as-rows?    -> by default this function return a lazy seq of
                     records (map), but in certain circumstances you
@@ -44,32 +47,30 @@
                     of vectors instead of records (maps).
   "
   [conn ^ResultSet rs {:keys [identifiers as-rows? header?]
-                       :or {identifiers str/lower-case
-                            as-rows? false
-                            header? false}
+                       :or {identifiers default-identifiers
+                            as-rows?    false
+                            header?     false}
                        :as options}]
   (let [^ResultSetMetaData metadata (.getMetaData rs)
-        idseq (range 1 (inc (.getColumnCount metadata)))
-        labels (mapv (fn [^long i] (.getColumnLabel metadata i)) idseq)
-        keyseq (mapv (comp keyword identifiers) labels)
-        values (fn []
-                 (mapv (fn [^long i]
-                         (-> (.getObject rs i)
-                             (proto/from-sql-type conn metadata i)))
-                       idseq))
-        rows (fn thisfn []
-               (when (.next rs)
-                 (cons (values) (lazy-seq (thisfn)))))
+        idseq   (range 1 (inc (.getColumnCount metadata)))
+        keyseq  (identifiers metadata)
+        values  (fn []
+                  (mapv (fn [^long i]
+                          (-> (.getObject rs i)
+                              (proto/from-sql-type conn metadata i)))
+                        idseq))
+        rows    (fn thisfn []
+                  (when (.next rs)
+                    (cons (values) (lazy-seq (thisfn)))))
         records (fn thisfn []
                   (when (.next rs)
                     (-> (zipmap keyseq (values))
-                        (cons (lazy-seq (thisfn))))))
-        header (mapv identifiers labels)]
-    (if-not as-rows?
-      (records)
-      (if-not header?
-        (rows)
-        (cons header (lazy-seq (rows)))))))
+                        (cons (lazy-seq (thisfn))))))]
+    (if as-rows?
+      (if header?
+        (cons keyseq (lazy-seq (rows)))
+        (rows))
+      (records))))
 
 (defn result-set->vector
   "Function that evaluates a result into one clojure persistent

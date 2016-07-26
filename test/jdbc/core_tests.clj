@@ -21,17 +21,32 @@
                  :subname "mem:"
                  :isolation-level :serializable})
 
-(def pg-dbspec {:subprotocol "postgresql"
-                :subname "//localhost:5432/test"})
+;;; So you don't have to muck with postgres files to allow
+;;; passwordless access to password databases.
+;;;
+;;; -- DROP ROLE IF EXISTS funcool;
+;;; -- CREATE ROLE funcool WITH LOGIN PASSWORD 'funcool';
+;;; -- CREATE DATABASE funcool WITH OWNER = funcool TEMPLATE = template0 ENCODING = 'utf8';
 
-(def pg-dbspec-pretty {:vendor "postgresql"
-                       :name "test"
-                       :host "localhost"
+(def +pg-db+       "funcool")
+(def +pg-user+     "funcool")
+(def +pg-password+ "funcool")
+
+(def pg-dbspec {:subprotocol "postgresql"
+                :subname     (str "//localhost:5432/" +pg-db+)
+                :user        +user+
+                :password    +password+})
+
+(def pg-dbspec-pretty {:vendor    "postgresql"
+                       :name      +pg-db+
+                       :host      "localhost"
+                       :user      +user+
+                       :password  +password+
                        :read-only true})
 
-(def pg-dbspec-uri-1 "postgresql://localhost:5432/test")
-(def pg-dbspec-uri-2 "postgresql://localhost:5432/test?")
-(def pg-dbspec-uri-3 "postgresql://localhost:5432/test?foo=bar")
+(def pg-dbspec-uri-1 (format "postgresql://%s:%s@localhost:5432/%s" +user+ +password+ +pg-db+))
+(def pg-dbspec-uri-2 (str pg-dbspec-uri-1 "?"))
+(def pg-dbspec-uri-3 (str pg-dbspec-uri-1 "?foo=bar"))
 
 (deftest datasource-spec
   (with-open [ds (hikari/make-datasource {:adapter "h2" :url "jdbc:h2:/tmp/test"})]
@@ -128,17 +143,18 @@
 
   (with-open [conn (jdbc/connection pg-dbspec)]
     (let [result (jdbc/fetch conn ["SELECT i % 2 = 1 AS odd FROM generate_series(1, ?) t(i);" 2]
-                             {:metadata->identifiers (fn [metadata]
-                                                       (->> metadata .getColumnCount inc
-                                                            ;; 1 based indexing not 0
-                                                            (range 1)
-                                                            (map (fn [idx]
-                                                                   (let [label (-> (.getColumnLabel metadata idx) s/lower-case (s/replace "_" "-"))]
-                                                                     (-> (str label (when (= "bool" (.getColumnTypeName metadata idx)) "?"))
-                                                                         keyword))))))})]
+                             {:identifiers (fn [metadata]
+                                             (->> metadata .getColumnCount inc
+                                                  ;; 1 based indexing not 0
+                                                  (range 1)
+                                                  (map (fn [idx]
+                                                         (let [label (-> (.getColumnLabel metadata idx) s/lower-case (s/replace "_" "-"))]
+                                                           (-> (str label (when (= "bool" (.getColumnTypeName metadata idx)) "?"))
+                                                               keyword))))))})]
       (is (= [{:odd? true} {:odd? false}] result))))
 
   ;; Fetch with sqlvec format and overwriting identifiers parameter
+  #_
   (with-open [conn (jdbc/connection h2-dbspec3)]
     (let [result (jdbc/fetch conn ["SELECT 1 + 1 as foo;"] {:identifiers identity})]
       (is (= [{:FOO 2}] result))))
@@ -151,7 +167,7 @@
   ;; Fetch returning rows with header
   (with-open [conn (jdbc/connection h2-dbspec3)]
     (let [result (jdbc/fetch conn ["SELECT 1 + 1 as foo, 2 + 2 as bar;"] {:as-rows? true :header? true})]
-      (is (= [["foo", "bar"] [2, 4]] result))))
+      (is (= [[:foo :bar] [2, 4]] result))))
 
   ;; Fetch from prepared statement
   (with-open [conn (jdbc/connection h2-dbspec3)]
